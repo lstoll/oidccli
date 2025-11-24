@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/alecthomas/kong"
 	"golang.org/x/oauth2"
 	"lds.li/oauth2ext/clitoken"
 	"lds.li/oauth2ext/oidc"
@@ -18,250 +18,46 @@ import (
 	"lds.li/oauth2ext/tokencache"
 )
 
-type subCommand struct {
-	Flags       *flag.FlagSet
-	Description string
+// CLI is the root command struct
+type CLI struct {
+	// Base options
+	Issuer         string `kong:"required,help='OIDC Issuer URL'"`
+	ClientID       string `kong:"help='OIDC Client ID (required unless -register-client is set)'"`
+	ClientSecret   string `kong:"help='OIDC Client Secret (required unless -register-client is set)'"`
+	PortLow        int    `kong:"help='Lowest TCP port to bind on localhost for callbacks. By default, a port will be randomly assigned by the operating system.'"`
+	PortHigh       int    `kong:"help='Highest TCP port to bind on localhost for callbacks. By default, a port will be randomly assigned by the operating system.'"`
+	Offline        bool   `kong:"help='Offline use (request refresh token). This token will be cached locally, can be used to avoid re-launching the auth flow when the token expires'"`
+	SkipCache      bool   `kong:"help='Do not perform any local caching on token'"`
+	Scopes         string `kong:"help='Comma separated list of extra scopes to request'"`
+	RegisterClient bool   `kong:"help='Perform dynamic client registration and use the returned client ID/secret'"`
+
+	// Subcommands
+	Raw        RawCmd        `kong:"cmd,help='Output a raw JWT for this client'"`
+	Kubernetes KubernetesCmd `kong:"cmd,help='Output credentials in a format that can be consumed by kubectl/client-go'"`
+	Info       InfoCmd       `kong:"cmd,help='Output information about the auth response in human-readable format'"`
 }
 
-type baseOpts struct {
-	Issuer         string
-	ClientID       string
-	ClientSecret   string
-	PortLow        int
-	PortHigh       int
-	Offline        bool
-	SkipCache      bool
-	Scopes         string
-	RegisterClient bool
+// RawCmd outputs a raw JWT token
+type RawCmd struct {
+	UseAccessToken bool            `kong:"help='Use access token, rather than id_token'"`
+	CLI            *CLI            `kong:"-"`
+	Context        context.Context `kong:"-"`
 }
 
-type rawOpts struct {
-	UseAccessToken bool
-}
-
-type kubeOpts struct {
-	UseAccessToken bool
-}
-
-type infoOpts struct{}
-
-func main() {
-	ctx := context.Background()
-
-	baseFlags := baseOpts{}
-	baseFs := flag.NewFlagSet("oidccli", flag.ExitOnError)
-	baseFs.StringVar(&baseFlags.Issuer, "issuer", baseFlags.Issuer, "OIDC Issuer URL (required)")
-	baseFs.StringVar(&baseFlags.ClientID, "client-id", baseFlags.ClientID, "OIDC Client ID (required unless -register-client is set)")
-	baseFs.StringVar(&baseFlags.ClientSecret, "client-secret", baseFlags.ClientSecret, "OIDC Client Secret (required unless -register-client is set)")
-	baseFs.IntVar(&baseFlags.PortLow, "port-low", 0, "Lowest TCP port to bind on localhost for callbacks. By default, a port will be randomly assigned by the operating system.")
-	baseFs.IntVar(&baseFlags.PortHigh, "port-high", 0, "Highest TCP port to bind on localhost for callbacks. By default, a port will be randomly assigned by the operating system.")
-	baseFs.BoolVar(&baseFlags.Offline, "offline", baseFlags.Offline, "Offline use (request refresh token). This token will be cached locally, can be used to avoid re-launching the auth flow when the token expires")
-	baseFs.BoolVar(&baseFlags.SkipCache, "skip-cache", baseFlags.SkipCache, "Do not perform any local caching on token")
-	baseFs.StringVar(&baseFlags.Scopes, "scopes", baseFlags.Scopes, "Comma separated list of extra scopes to request")
-	baseFs.BoolVar(&baseFlags.RegisterClient, "register-client", baseFlags.RegisterClient, "Perform dynamic client registration and use the returned client ID/secret")
-
-	var subcommands []*subCommand
-
-	rawFlags := rawOpts{}
-	rawFs := flag.NewFlagSet("raw", flag.ExitOnError)
-	rawFs.BoolVar(&rawFlags.UseAccessToken, "use-access-token", rawFlags.UseAccessToken, "Use access token, rather than id_token")
-	subcommands = append(subcommands, &subCommand{
-		Flags:       rawFs,
-		Description: "Output a raw JWT for this client",
-	})
-
-	kubeFlags := kubeOpts{}
-	kubeFs := flag.NewFlagSet("kubernetes", flag.ExitOnError)
-	kubeFs.BoolVar(&kubeFlags.UseAccessToken, "use-access-token", kubeFlags.UseAccessToken, "Use access token, rather than id_token")
-	subcommands = append(subcommands, &subCommand{
-		Flags:       kubeFs,
-		Description: "Output credentials in a format that can be consumed by kubectl/client-go",
-	})
-
-	infoFlags := infoOpts{}
-	infoFs := flag.NewFlagSet("info", flag.ExitOnError)
-	subcommands = append(subcommands, &subCommand{
-		Flags:       infoFs,
-		Description: "Output information about the auth response in human-readable format",
-	})
-
-	if err := baseFs.Parse(os.Args[1:]); err != nil {
-		fmt.Printf("failed parsing args: %v", err)
-		os.Exit(1)
-	}
-
-	if len(baseFs.Args()) < 1 {
-		fmt.Print("error: subcommand required\n\n")
-		printFullUsage(baseFs, subcommands)
-		os.Exit(1)
-	}
-
-	var missingFlags []string
-	if baseFlags.Issuer == "" {
-		missingFlags = append(missingFlags, "issuer")
-	}
-
-	// Validate flag combinations
-	if baseFlags.RegisterClient {
-		if baseFlags.ClientID != "" || baseFlags.ClientSecret != "" {
-			fmt.Print("error: -register-client cannot be used with -client-id or -client-secret\n\n")
-			printFullUsage(baseFs, subcommands)
-			os.Exit(1)
-		}
-	} else {
-		if baseFlags.ClientID == "" {
-			missingFlags = append(missingFlags, "client-id")
-		}
-	}
-
-	var execFn func(context.Context, *provider.Provider, oauth2.TokenSource) error
-
-	switch baseFs.Arg(0) {
-	case "raw":
-		if err := rawFs.Parse(baseFs.Args()[1:]); err != nil {
-			fmt.Printf("failed parsing raw args: %v", err)
-			os.Exit(1)
-		}
-		execFn = func(ctx context.Context, _ *provider.Provider, ts oauth2.TokenSource) error {
-			return raw(ts, rawFlags)
-		}
-	case "kubernetes":
-		if err := kubeFs.Parse(baseFs.Args()[1:]); err != nil {
-			fmt.Printf("failed parsing kube args: %v", err)
-			os.Exit(1)
-		}
-		execFn = func(ctx context.Context, _ *provider.Provider, ts oauth2.TokenSource) error {
-			return kubernetes(ts, kubeFlags)
-		}
-	case "info":
-		if err := infoFs.Parse(baseFs.Args()[1:]); err != nil {
-			fmt.Printf("failed parsing info args: %v", err)
-			os.Exit(1)
-		}
-		execFn = func(ctx context.Context, provider *provider.Provider, ts oauth2.TokenSource) error {
-			return info(ctx, provider, ts, infoFlags)
-		}
-	default:
-		fmt.Printf("error: invalid subcommand %s\n\n", baseFs.Arg(0))
-		printFullUsage(baseFs, subcommands)
-		os.Exit(1)
-	}
-
-	if len(missingFlags) > 0 {
-		fmt.Printf("error: %s are required flags\n\n", strings.Join(missingFlags, ", "))
-		printFullUsage(baseFs, subcommands)
-		os.Exit(1)
-	}
-
-	provider, err := provider.DiscoverOIDCProvider(ctx, baseFlags.Issuer)
+// Run executes the raw command
+func (r *RawCmd) Run(ctx *kong.Context) error {
+	provider, ts, err := setupProviderAndTokenSource(r.Context, r.CLI)
 	if err != nil {
-		fmt.Printf("discovering issuer %s: %v", baseFlags.Issuer, err)
-		os.Exit(1)
+		return err
 	}
+	_ = provider // not used in raw command
 
-	// Perform dynamic client registration if requested
-	if baseFlags.RegisterClient {
-		clientID, clientSecret, err := registerClient(ctx, provider)
-		if err != nil {
-			fmt.Printf("registering client: %v", err)
-			os.Exit(1)
-		}
-
-		// Print the client credentials
-		fmt.Printf("Client ID: %s\n", clientID)
-		if clientSecret != "" {
-			fmt.Printf("Client Secret: %s\n", clientSecret)
-		}
-
-		// Use the registered client credentials
-		baseFlags.ClientID = clientID
-		baseFlags.ClientSecret = clientSecret
-		// We always create a new client, so caching doesn't help.
-		baseFlags.SkipCache = true
-	}
-
-	scopes := []string{oidc.ScopeOpenID}
-	if baseFlags.Offline {
-		scopes = append(scopes, "offline")
-	}
-	if baseFlags.Scopes != "" {
-		scopes = append(scopes, strings.Split(baseFlags.Scopes, ",")...)
-	}
-
-	oa2Cfg := oauth2.Config{
-		ClientID:     baseFlags.ClientID,
-		ClientSecret: baseFlags.ClientSecret,
-		Endpoint:     provider.Endpoint(),
-		Scopes:       scopes,
-	}
-	clitokCfg := clitoken.Config{
-		OAuth2Config: oa2Cfg,
-		PortLow:      uint16(baseFlags.PortLow),
-		PortHigh:     uint16(baseFlags.PortHigh),
-	}
-
-	var ts oauth2.TokenSource
-	ts, err = clitokCfg.TokenSource(ctx)
-	if err != nil {
-		fmt.Printf("getting cli token source: %v", err)
-		os.Exit(1)
-	}
-
-	if !baseFlags.SkipCache {
-		ccfg := tokencache.Config{
-			Issuer: baseFlags.Issuer,
-			CacheKey: (tokencache.IDTokenCacheKey{
-				ClientID: baseFlags.ClientID,
-				Scopes:   scopes,
-			}).Key(),
-			WrappedSource: ts,
-			Cache:         clitoken.BestCredentialCache(),
-		}
-		if baseFlags.Offline {
-			ccfg.OAuth2Config = &oa2Cfg
-		}
-
-		ts, err = ccfg.TokenSource(ctx)
-		if err != nil {
-			fmt.Printf("error creating token cache: %+v", err)
-			os.Exit(1)
-		}
-	}
-
-	if err := execFn(ctx, provider, ts); err != nil {
-		fmt.Printf("error: %+v", err)
-		os.Exit(1)
-	}
-}
-
-func printFullUsage(baseFs *flag.FlagSet, subcommands []*subCommand) {
-	fmt.Printf("Usage: %s <base flags> <subcommand> <subcommand flags>\n", os.Args[0])
-	fmt.Print("\n")
-	fmt.Print("Base Flags:\n")
-	fmt.Print("\n")
-	baseFs.PrintDefaults()
-	fmt.Print("\n")
-	fmt.Print("Subcommands:\n")
-	fmt.Print("\n")
-	for _, sc := range subcommands {
-		fmt.Printf("%s\n", sc.Flags.Name())
-		fmt.Print("\n")
-		fmt.Printf("  %s\n", sc.Description)
-		fmt.Print("\n")
-		sc.Flags.PrintDefaults()
-		fmt.Print("\n")
-	}
-}
-
-func raw(ts oauth2.TokenSource, opts rawOpts) error {
-	// TODO(lstoll) might want to default to access token, and make id_token an
-	// option.
 	tok, err := ts.Token()
 	if err != nil {
 		return fmt.Errorf("fetching token: %v", err)
 	}
 	raw := tok.AccessToken
-	if !opts.UseAccessToken {
+	if !r.UseAccessToken {
 		idt, ok := oidc.GetIDToken(tok)
 		if !ok {
 			return fmt.Errorf("response has no id_token")
@@ -272,31 +68,27 @@ func raw(ts oauth2.TokenSource, opts rawOpts) error {
 	return nil
 }
 
-// https://kubernetes.io/docs/reference/access-authn-authz/authentication/#client-go-credential-plugins
-
-type kubeToken struct {
-	Token               string     `json:"token,omitempty"`
-	ExpirationTimestamp *time.Time `json:"expirationTimestamp,omitempty"`
+// KubernetesCmd outputs credentials in Kubernetes exec credential format
+type KubernetesCmd struct {
+	UseAccessToken bool            `kong:"help='Use access token, rather than id_token'"`
+	CLI            *CLI            `kong:"-"`
+	Context        context.Context `kong:"-"`
 }
 
-const (
-	apiVersion   = "client.authentication.k8s.io/v1beta1"
-	execCredKind = "ExecCredential"
-)
+// Run executes the kubernetes command
+func (k *KubernetesCmd) Run(ctx *kong.Context) error {
+	provider, ts, err := setupProviderAndTokenSource(k.Context, k.CLI)
+	if err != nil {
+		return err
+	}
+	_ = provider // not used in kubernetes command
 
-type kubeExecCred struct {
-	APIVersion string    `json:"apiVersion,omitempty"`
-	Kind       string    `json:"kind,omitempty"`
-	Status     kubeToken `json:"status"`
-}
-
-func kubernetes(ts oauth2.TokenSource, opts kubeOpts) error {
 	tok, err := ts.Token()
 	if err != nil {
 		return fmt.Errorf("fetching token: %v", err)
 	}
 	var raw = tok.AccessToken
-	if !opts.UseAccessToken {
+	if !k.UseAccessToken {
 		idt, ok := oidc.GetIDToken(tok)
 		if !ok {
 			return fmt.Errorf("response has no id_token")
@@ -314,7 +106,19 @@ func kubernetes(ts oauth2.TokenSource, opts kubeOpts) error {
 	return json.NewEncoder(os.Stdout).Encode(&creds)
 }
 
-func info(ctx context.Context, p *provider.Provider, ts oauth2.TokenSource, _ infoOpts) error {
+// InfoCmd outputs information about the auth response
+type InfoCmd struct {
+	CLI     *CLI            `kong:"-"`
+	Context context.Context `kong:"-"`
+}
+
+// Run executes the info command
+func (i *InfoCmd) Run(ctx *kong.Context) error {
+	prov, ts, err := setupProviderAndTokenSource(i.Context, i.CLI)
+	if err != nil {
+		return err
+	}
+
 	tok, err := ts.Token()
 	if err != nil {
 		return fmt.Errorf("fetching token: %v", err)
@@ -328,13 +132,13 @@ func info(ctx context.Context, p *provider.Provider, ts oauth2.TokenSource, _ in
 	fmt.Printf("Refresh Token: %s\n", tok.RefreshToken)
 	idt, ok := oidc.GetIDToken(tok)
 	if ok {
-		validator, err := p.NewIDTokenValidator(&provider.IDTokenValidatorOpts{
+		validator, err := prov.NewIDTokenValidator(&provider.IDTokenValidatorOpts{
 			IgnoreClientID: true,
 		})
 		if err != nil {
 			return fmt.Errorf("creating id token validator: %w", err)
 		}
-		claims, err := p.VerifyAndDecodeIDToken(tok, validator)
+		claims, err := prov.VerifyAndDecodeIDToken(tok, validator)
 		if err != nil {
 			return fmt.Errorf("ID token verification: %w", err)
 		}
@@ -367,7 +171,115 @@ func info(ctx context.Context, p *provider.Provider, ts oauth2.TokenSource, _ in
 	return nil
 }
 
-// isJWT guesses is something is a JWT
+// setupProviderAndTokenSource sets up the OIDC provider and token source based on CLI options
+func setupProviderAndTokenSource(ctx context.Context, cli *CLI) (*provider.Provider, oauth2.TokenSource, error) {
+	// Validate flag combinations
+	if cli.RegisterClient {
+		if cli.ClientID != "" || cli.ClientSecret != "" {
+			return nil, nil, fmt.Errorf("-register-client cannot be used with -client-id or -client-secret")
+		}
+	} else {
+		if cli.ClientID == "" {
+			return nil, nil, fmt.Errorf("client-id is required (unless -register-client is set)")
+		}
+	}
+
+	prov, err := provider.DiscoverOIDCProvider(ctx, cli.Issuer)
+	if err != nil {
+		return nil, nil, fmt.Errorf("discovering issuer %s: %w", cli.Issuer, err)
+	}
+
+	clientID := cli.ClientID
+	clientSecret := cli.ClientSecret
+	skipCache := cli.SkipCache
+
+	// Perform dynamic client registration if requested
+	if cli.RegisterClient {
+		registeredClientID, registeredClientSecret, err := registerClient(ctx, prov)
+		if err != nil {
+			return nil, nil, fmt.Errorf("registering client: %w", err)
+		}
+
+		// Print the client credentials
+		fmt.Printf("Client ID: %s\n", registeredClientID)
+		if registeredClientSecret != "" {
+			fmt.Printf("Client Secret: %s\n", registeredClientSecret)
+		}
+
+		// Use the registered client credentials
+		clientID = registeredClientID
+		clientSecret = registeredClientSecret
+		// We always create a new client, so caching doesn't help.
+		skipCache = true
+	}
+
+	scopes := []string{oidc.ScopeOpenID}
+	if cli.Offline {
+		scopes = append(scopes, "offline")
+	}
+	if cli.Scopes != "" {
+		scopes = append(scopes, strings.Split(cli.Scopes, ",")...)
+	}
+
+	oa2Cfg := oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		Endpoint:     prov.Endpoint(),
+		Scopes:       scopes,
+	}
+	clitokCfg := clitoken.Config{
+		OAuth2Config: oa2Cfg,
+		PortLow:      uint16(cli.PortLow),
+		PortHigh:     uint16(cli.PortHigh),
+	}
+
+	ts, err := clitokCfg.TokenSource(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("getting cli token source: %w", err)
+	}
+
+	if !skipCache {
+		ccfg := tokencache.Config{
+			Issuer: cli.Issuer,
+			CacheKey: (tokencache.IDTokenCacheKey{
+				ClientID: clientID,
+				Scopes:   scopes,
+			}).Key(),
+			WrappedSource: ts,
+			Cache:         clitoken.BestCredentialCache(),
+		}
+		if cli.Offline {
+			ccfg.OAuth2Config = &oa2Cfg
+		}
+
+		ts, err = ccfg.TokenSource(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error creating token cache: %w", err)
+		}
+	}
+
+	return prov, ts, nil
+}
+
+// kubeToken represents the token in Kubernetes exec credential format
+type kubeToken struct {
+	Token               string     `json:"token,omitempty"`
+	ExpirationTimestamp *time.Time `json:"expirationTimestamp,omitempty"`
+}
+
+const (
+	apiVersion   = "client.authentication.k8s.io/v1beta1"
+	execCredKind = "ExecCredential"
+)
+
+// kubeExecCred represents the Kubernetes exec credential response
+type kubeExecCred struct {
+	APIVersion string    `json:"apiVersion,omitempty"`
+	Kind       string    `json:"kind,omitempty"`
+	Status     kubeToken `json:"status"`
+}
+
+// isJWT guesses if something is a JWT
 func isJWT(s string) bool {
 	return strings.Count(s, ".") == 2
 }
@@ -392,4 +304,36 @@ func registerClient(ctx context.Context, provider *provider.Provider) (string, s
 	}
 
 	return response.ClientID, response.ClientSecret, nil
+}
+
+func main() {
+	// Create root context
+	goCtx := context.Background()
+
+	var cli CLI
+	parser, err := kong.New(&cli)
+	if err != nil {
+		fmt.Printf("failed to create parser: %v\n", err)
+		os.Exit(1)
+	}
+
+	ctx, err := parser.Parse(os.Args[1:])
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Set the CLI reference and context on each subcommand so they can access base options
+	cli.Raw.CLI = &cli
+	cli.Raw.Context = goCtx
+	cli.Kubernetes.CLI = &cli
+	cli.Kubernetes.Context = goCtx
+	cli.Info.CLI = &cli
+	cli.Info.Context = goCtx
+
+	// Kong will automatically call the Run method on the selected command
+	if err := ctx.Run(); err != nil {
+		fmt.Printf("error: %+v\n", err)
+		os.Exit(1)
+	}
 }
