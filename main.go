@@ -12,9 +12,9 @@ import (
 // CLI is the root command struct
 type CLI struct {
 	// Base options
-	Issuer         string `kong:"required,help='OIDC Issuer URL'"`
-	ClientID       string `kong:"help='OIDC Client ID (required unless -register-client is set)'"`
-	ClientSecret   string `kong:"help='OIDC Client Secret (required unless -register-client is set)'"`
+	Issuer         string `kong:"env='OIDCCLI_ISSUER',required,help='OIDC Issuer URL'"`
+	ClientID       string `kong:"env='OIDCCLI_CLIENT_ID',help='OIDC Client ID (required unless -register-client is set)'"`
+	ClientSecret   string `kong:"env='OIDCCLI_CLIENT_SECRET',help='OIDC Client Secret (required unless -register-client is set)'"`
 	PortLow        int    `kong:"help='Lowest TCP port to bind on localhost for callbacks. By default, a port will be randomly assigned by the operating system.'"`
 	PortHigh       int    `kong:"help='Highest TCP port to bind on localhost for callbacks. By default, a port will be randomly assigned by the operating system.'"`
 	Offline        bool   `kong:"help='Offline use (request refresh token). This token will be cached locally, can be used to avoid re-launching the auth flow when the token expires'"`
@@ -26,6 +26,7 @@ type CLI struct {
 	Raw        RawCmd        `kong:"cmd,help='Output a raw JWT for this client'"`
 	Kubernetes KubernetesCmd `kong:"cmd,help='Output credentials in a format that can be consumed by kubectl/client-go'"`
 	Info       InfoCmd       `kong:"cmd,help='Output information about the auth response in human-readable format'"`
+	Aws        AwsCmd        `kong:"cmd,help='AWS integration commands'"`
 }
 
 func main() {
@@ -54,6 +55,7 @@ func main() {
 
 	ctx.BindTo(goCtx, (*context.Context)(nil))
 	ctx.Bind(&cli)
+	ctx.Bind(&cli.Aws)
 	ctx.Bind(prov)
 	ctx.BindTo(ts, (*oauth2.TokenSource)(nil))
 
