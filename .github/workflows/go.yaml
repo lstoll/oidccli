@@ -1,0 +1,11 @@
+name: Go
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    uses: lstoll/actions-workflows/.github/workflows/go.yaml@main
