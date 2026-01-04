@@ -126,7 +126,7 @@ func registerClient(ctx context.Context, provider *provider.Provider) (string, s
 		GrantTypes:      []string{"authorization_code"},
 	}
 
-	if slices.Contains(provider.Metadata.GetIDTokenSigningAlgValuesSupported(), "ES256") {
+	if slices.Contains(provider.IDTokenSigningAlgValuesSupported(), "ES256") {
 		request.IDTokenSignedResponseAlg = "ES256"
 	}
 

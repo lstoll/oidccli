@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"golang.org/x/oauth2"
+	"lds.li/oauth2ext/claims"
 	"lds.li/oauth2ext/oidc"
 	"lds.li/oauth2ext/provider"
 )
@@ -29,13 +30,14 @@ func (i *InfoCmd) Run(ctx context.Context, prov *provider.Provider, ts oauth2.To
 	fmt.Printf("Refresh Token: %s\n", tok.RefreshToken)
 	idt, ok := oidc.GetIDToken(tok)
 	if ok {
-		validator, err := prov.NewIDTokenValidator(&provider.IDTokenValidatorOpts{
+		validator := claims.NewIDTokenValidator(&claims.IDTokenValidatorOpts{
 			IgnoreClientID: true,
 		})
+		verifier, err := claims.NewVerifier[*claims.VerifiedID](prov)
 		if err != nil {
 			return fmt.Errorf("creating id token validator: %w", err)
 		}
-		claims, err := prov.VerifyAndDecodeIDToken(tok, validator)
+		claims, err := verifier.VerifyAndDecodeToken(ctx, *tok, validator)
 		if err != nil {
 			return fmt.Errorf("ID token verification: %w", err)
 		}
