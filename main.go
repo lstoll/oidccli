@@ -21,6 +21,7 @@ type CLI struct {
 	SkipCache      bool   `kong:"help='Do not perform any local caching on token'"`
 	Scopes         string `kong:"help='Comma separated list of extra scopes to request'"`
 	RegisterClient bool   `kong:"help='Perform dynamic client registration and use the returned client ID/secret'"`
+	DPoP           bool   `kong:"help='Use DPoP to sign HTTP requests'"`
 
 	// Subcommands
 	Raw        RawCmd        `kong:"cmd,help='Output a raw JWT for this client'"`

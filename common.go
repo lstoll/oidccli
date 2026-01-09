@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
 	"lds.li/oauth2ext/clitoken"
+	"lds.li/oauth2ext/dpop"
 	"lds.li/oauth2ext/oidc"
 	"lds.li/oauth2ext/oidcclientreg"
 	"lds.li/oauth2ext/provider"
@@ -59,7 +61,7 @@ func setupProviderAndTokenSource(ctx context.Context, cli *CLI) (*provider.Provi
 
 	scopes := []string{oidc.ScopeOpenID}
 	if cli.Offline {
-		scopes = append(scopes, "offline")
+		scopes = append(scopes, oidc.ScopeOfflineAccess)
 	}
 	if cli.Scopes != "" {
 		scopes = append(scopes, strings.Split(cli.Scopes, ",")...)
@@ -75,6 +77,27 @@ func setupProviderAndTokenSource(ctx context.Context, cli *CLI) (*provider.Provi
 		OAuth2Config: oa2Cfg,
 		PortLow:      uint16(cli.PortLow),
 		PortHigh:     uint16(cli.PortHigh),
+	}
+
+	if cli.DPoP {
+		signer, err := clitoken.BestPlatformSigner()
+		if err != nil {
+			return nil, nil, fmt.Errorf("getting best platform signer: %w", err)
+		}
+
+		dpopSigner, err := dpop.NewSigner(signer)
+		if err != nil {
+			return nil, nil, fmt.Errorf("creating dpop encoder: %w", err)
+		}
+
+		dpopTransport := &dpop.Transport{
+			Base:   http.DefaultTransport,
+			Signer: dpopSigner,
+		}
+
+		ctx = context.WithValue(ctx, oauth2.HTTPClient, &http.Client{
+			Transport: dpopTransport,
+		})
 	}
 
 	ts, err := clitokCfg.TokenSource(ctx)
