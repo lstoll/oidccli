@@ -21,12 +21,12 @@ import (
 
 // AwsCmd is the root AWS command
 type AwsCmd struct {
-	RoleARN         string      `kong:"env='OIDCCLI_AWS_ROLE_ARN',required,help='AWS IAM Role ARN to assume'"`
-	Region          string      `kong:"env='AWS_REGION',required,help='AWS region'"`
-	SessionName     string      `kong:"help='Session name for the assumed role (defaults to oidccli)'"`
-	DurationSeconds int32       `kong:"help='Duration in seconds for the temporary credentials (default: 3600)'"`
-	Login           AwsLoginCmd `kong:"cmd,help='Generate a temporary AWS console login URL and open it'"`
-	Exec            AwsExecCmd  `kong:"cmd,help='Set AWS credentials as environment variables and execute a command'"`
+	RoleARN         string      `env:"OIDCCLI_AWS_ROLE_ARN" required:"" help:"AWS IAM Role ARN to assume"`
+	Region          string      `env:"AWS_REGION" required:"" help:"AWS region"`
+	SessionName     string      `help:"Session name for the assumed role (defaults to oidccli)"`
+	DurationSeconds int32       `help:"Duration in seconds for the temporary credentials (default: 3600)"`
+	Login           AwsLoginCmd `cmd:"" help:"Generate a temporary AWS console login URL and open it"`
+	Exec            AwsExecCmd  `cmd:"" help:"Set AWS credentials as environment variables and execute a command"`
 }
 
 // AwsLoginCmd generates a temporary AWS console login URL
@@ -34,7 +34,7 @@ type AwsLoginCmd struct{}
 
 // AwsExecCmd sets AWS credentials and executes a command
 type AwsExecCmd struct {
-	Command []string `kong:"arg,help='Command to execute'"`
+	Command []string `arg:"" help:"Command to execute"`
 }
 
 // Run executes the AWS login command

@@ -24,7 +24,7 @@ type kubeExecCred struct {
 
 // KubernetesCmd outputs credentials in Kubernetes exec credential format
 type KubernetesCmd struct {
-	UseAccessToken bool `kong:"help='Use access token, rather than id_token'"`
+	UseAccessToken bool `help:"Use access token, rather than id_token"`
 }
 
 // Run executes the kubernetes command

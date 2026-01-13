@@ -12,22 +12,22 @@ import (
 // CLI is the root command struct
 type CLI struct {
 	// Base options
-	Issuer         string `kong:"env='OIDCCLI_ISSUER',required,help='OIDC Issuer URL'"`
-	ClientID       string `kong:"env='OIDCCLI_CLIENT_ID',help='OIDC Client ID (required unless -register-client is set)'"`
-	ClientSecret   string `kong:"env='OIDCCLI_CLIENT_SECRET',help='OIDC Client Secret (required unless -register-client is set)'"`
-	PortLow        int    `kong:"help='Lowest TCP port to bind on localhost for callbacks. By default, a port will be randomly assigned by the operating system.'"`
-	PortHigh       int    `kong:"help='Highest TCP port to bind on localhost for callbacks. By default, a port will be randomly assigned by the operating system.'"`
-	Offline        bool   `kong:"help='Offline use (request refresh token). This token will be cached locally, can be used to avoid re-launching the auth flow when the token expires'"`
-	SkipCache      bool   `kong:"help='Do not perform any local caching on token'"`
-	Scopes         string `kong:"help='Comma separated list of extra scopes to request'"`
-	RegisterClient bool   `kong:"help='Perform dynamic client registration and use the returned client ID/secret'"`
-	DPoP           bool   `kong:"help='Use DPoP to sign HTTP requests'"`
+	Issuer         string `env:"OIDCCLI_ISSUER" required:"" help:"OIDC Issuer URL"`
+	ClientID       string `env:"OIDCCLI_CLIENT_ID" help:"OIDC Client ID (required unless -register-client is set)"`
+	ClientSecret   string `env:"OIDCCLI_CLIENT_SECRET" help:"OIDC Client Secret (required unless -register-client is set)"`
+	PortLow        int    `help:"Lowest TCP port to bind on localhost for callbacks. By default, a port will be randomly assigned by the operating system."`
+	PortHigh       int    `help:"Highest TCP port to bind on localhost for callbacks. By default, a port will be randomly assigned by the operating system."`
+	Offline        bool   `help:"Offline use (request refresh token). This token will be cached locally, can be used to avoid re-launching the auth flow when the token expires"`
+	SkipCache      bool   `help:"Do not perform any local caching on token"`
+	Scopes         string `help:"Comma separated list of extra scopes to request"`
+	RegisterClient bool   `help:"Perform dynamic client registration and use the returned client ID/secret"`
+	DPoP           bool   `env:"OIDCCLI_DPOP" help:"Use DPoP to sign HTTP requests"`
 
 	// Subcommands
-	Raw        RawCmd        `kong:"cmd,help='Output a raw JWT for this client'"`
-	Kubernetes KubernetesCmd `kong:"cmd,help='Output credentials in a format that can be consumed by kubectl/client-go'"`
-	Info       InfoCmd       `kong:"cmd,help='Output information about the auth response in human-readable format'"`
-	Aws        AwsCmd        `kong:"cmd,help='AWS integration commands'"`
+	Raw        RawCmd        `cmd:"" help:"Output a raw JWT for this client"`
+	Kubernetes KubernetesCmd `cmd:"" help:"Output credentials in a format that can be consumed by kubectl/client-go"`
+	Info       InfoCmd       `cmd:"" help:"Output information about the auth response in human-readable format"`
+	Aws        AwsCmd        `cmd:"" help:"AWS integration commands"`
 }
 
 func main() {

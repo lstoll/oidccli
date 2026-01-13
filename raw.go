@@ -10,7 +10,7 @@ import (
 
 // RawCmd outputs a raw JWT token
 type RawCmd struct {
-	UseAccessToken bool `kong:"help='Use access token, rather than id_token'"`
+	UseAccessToken bool `help:"Use access token, rather than id_token"`
 }
 
 // Run executes the raw command
