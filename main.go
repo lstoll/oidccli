@@ -21,7 +21,7 @@ type CLI struct {
 	SkipCache      bool   `help:"Do not perform any local caching on token"`
 	Scopes         string `help:"Comma separated list of extra scopes to request"`
 	RegisterClient bool   `help:"Perform dynamic client registration and use the returned client ID/secret"`
-	DPoP           bool   `env:"OIDCCLI_DPOP" help:"Use DPoP to sign HTTP requests"`
+	DPoP           bool   `name:"dpop" env:"OIDCCLI_DPOP" help:"Use DPoP to sign HTTP requests"`
 
 	// Subcommands
 	Raw        RawCmd        `cmd:"" help:"Output a raw JWT for this client"`
