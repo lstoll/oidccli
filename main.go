@@ -7,6 +7,8 @@ import (
 
 	"github.com/alecthomas/kong"
 	"golang.org/x/oauth2"
+	_ "lds.li/oauth2ext/keychainsecrets/auto"
+	_ "lds.li/oauth2ext/tpmsecrets/auto"
 )
 
 // CLI is the root command struct

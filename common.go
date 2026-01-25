@@ -80,9 +80,9 @@ func setupProviderAndTokenSource(ctx context.Context, cli *CLI) (*provider.Provi
 	}
 
 	if cli.DPoP {
-		signer, err := clitoken.BestPlatformSigner()
+		signer, err := clitoken.BestSigner()
 		if err != nil {
-			return nil, nil, fmt.Errorf("getting best platform signer: %w", err)
+			return nil, nil, fmt.Errorf("getting best signer: %w", err)
 		}
 
 		dpopSigner, err := dpop.NewSigner(signer)
