@@ -8,8 +8,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.6
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.5
 	golang.org/x/oauth2 v0.34.0
-	lds.li/oauth2ext v0.2.1-0.20260125191314-35efb9bcaf78
-	lds.li/oauth2ext/keychainsecrets v0.0.0-20260125191314-35efb9bcaf78
+	lds.li/oauth2ext v0.2.1-0.20260125231614-e46e18f4ac76
+	lds.li/oauth2ext/keychainsecrets v0.0.0-20260125231614-e46e18f4ac76
 	lds.li/oauth2ext/tpmsecrets v0.0.0-20260125191314-35efb9bcaf78
 )
 
@@ -32,5 +32,5 @@ require (
 	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/sys v0.39.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
-	lds.li/keychain v0.0.0-20260125191015-a9e54317a85c // indirect
+	lds.li/keychain v0.1.0 // indirect
 )
