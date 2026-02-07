@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.6
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.5
 	golang.org/x/oauth2 v0.34.0
-	lds.li/oauth2ext v0.2.1-0.20260125231614-e46e18f4ac76
+	lds.li/oauth2ext v0.3.1-0.20260207205415-3afa781f6f90
 	lds.li/oauth2ext/keychainsecrets v0.0.0-20260125231614-e46e18f4ac76
 	lds.li/oauth2ext/tpmsecrets v0.0.0-20260125191314-35efb9bcaf78
 )
