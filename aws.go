@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/arn"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/aws-sdk-go-v2/service/sts/types"
@@ -44,8 +45,9 @@ func (a *AwsLoginCmd) Run(ctx context.Context, ts oauth2.TokenSource, awsCmd *Aw
 		return fmt.Errorf("assuming role: %w", err)
 	}
 
-	// Generate console sign-in URL
-	consoleURL, err := generateConsoleSignInURL(creds)
+	// Generate console sign-in URL (partition is derived from role ARN for correct sign-in endpoint)
+	partition := partitionFromARN(awsCmd.RoleARN)
+	consoleURL, err := generateConsoleSignInURL(creds, partition)
 	if err != nil {
 		return fmt.Errorf("generating console URL: %w", err)
 	}
@@ -134,8 +136,35 @@ func assumeRoleWithWebIdentity(ctx context.Context, ts oauth2.TokenSource, roleA
 	return result.Credentials, nil
 }
 
-// generateConsoleSignInURL generates a temporary AWS console sign-in URL
-func generateConsoleSignInURL(creds *types.Credentials) (string, error) {
+// partitionEndpoints maps AWS partition IDs to their sign-in and console federation endpoints.
+// Each partition has its own sign-in service; using the wrong partition's endpoint will fail.
+var partitionEndpoints = map[string]struct {
+	Signin  string
+	Console string
+}{
+	"aws":        {"signin.aws.amazon.com", "console.aws.amazon.com"},
+	"aws-us-gov": {"signin.amazonaws-us-gov.com", "console.amazonaws-us-gov.com"},
+	"aws-cn":     {"signin.amazonaws.cn", "console.amazonaws.cn"},
+	"aws-eusc":   {"eusc-de-east-1.signin.amazonaws-eusc.eu", "console.amazonaws-eusc.eu"}, // TODO - pass region here.
+}
+
+// partitionFromARN extracts the partition from an AWS ARN using the SDK parser.
+func partitionFromARN(roleARN string) string {
+	parsed, err := arn.Parse(roleARN)
+	if err != nil {
+		return "aws"
+	}
+	return parsed.Partition
+}
+
+// generateConsoleSignInURL generates a temporary AWS console sign-in URL.
+// The partition determines which sign-in federation endpoint to use (e.g., aws vs aws-eusc for EU sovereign cloud).
+func generateConsoleSignInURL(creds *types.Credentials, partition string) (string, error) {
+	eps, ok := partitionEndpoints[partition]
+	if !ok {
+		return "", fmt.Errorf("unsupported AWS partition %q for console sign-in", partition)
+	}
+
 	// Create a sign-in token request
 	signinTokenReq := map[string]string{
 		"sessionId":    aws.ToString(creds.AccessKeyId),
@@ -148,8 +177,8 @@ func generateConsoleSignInURL(creds *types.Credentials) (string, error) {
 		return "", fmt.Errorf("marshaling sign-in token request: %w", err)
 	}
 
-	// Get sign-in token from AWS
-	signinTokenURL := fmt.Sprintf("https://signin.aws.amazon.com/federation?Action=getSigninToken&Session=%s", url.QueryEscape(string(jsonBytes)))
+	// Get sign-in token from the partition-specific federation endpoint
+	signinTokenURL := fmt.Sprintf("https://%s/federation?Action=getSigninToken&Session=%s", eps.Signin, url.QueryEscape(string(jsonBytes)))
 
 	resp, err := http.Get(signinTokenURL)
 	if err != nil {
@@ -168,8 +197,9 @@ func generateConsoleSignInURL(creds *types.Credentials) (string, error) {
 		return "", fmt.Errorf("decoding sign-in token response: %w", err)
 	}
 
-	// Generate console URL
-	consoleURL := fmt.Sprintf("https://signin.aws.amazon.com/federation?Action=login&Destination=https://console.aws.amazon.com/&SigninToken=%s", url.QueryEscape(signinTokenResp.SigninToken))
+	// Generate console URL using partition-specific destination
+	destination := fmt.Sprintf("https://%s/", eps.Console)
+	consoleURL := fmt.Sprintf("https://%s/federation?Action=login&Destination=%s&SigninToken=%s", eps.Signin, url.QueryEscape(destination), url.QueryEscape(signinTokenResp.SigninToken))
 
 	return consoleURL, nil
 }

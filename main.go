@@ -19,7 +19,7 @@ type CLI struct {
 	ClientSecret   string `env:"OIDCCLI_CLIENT_SECRET" help:"OIDC Client Secret (required unless -register-client is set)"`
 	PortLow        int    `help:"Lowest TCP port to bind on localhost for callbacks. By default, a port will be randomly assigned by the operating system."`
 	PortHigh       int    `help:"Highest TCP port to bind on localhost for callbacks. By default, a port will be randomly assigned by the operating system."`
-	Offline        bool   `help:"Offline use (request refresh token). This token will be cached locally, can be used to avoid re-launching the auth flow when the token expires"`
+	Offline        bool   `name:"offline" env:"OIDCCLI_OFFLINE" help:"Offline use (request refresh token). This token will be cached locally, can be used to avoid re-launching the auth flow when the token expires"`
 	SkipCache      bool   `help:"Do not perform any local caching on token"`
 	Scopes         string `help:"Comma separated list of extra scopes to request"`
 	RegisterClient bool   `help:"Perform dynamic client registration and use the returned client ID/secret"`
