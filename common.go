@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"golang.org/x/oauth2"
+	"lds.li/keychain"
 	"lds.li/oauth2ext/clitoken"
 	"lds.li/oauth2ext/dpop"
 	"lds.li/oauth2ext/oidc"
@@ -80,11 +81,33 @@ func setupProviderAndTokenSource(ctx context.Context, cli *CLI) (*provider.Provi
 	}
 
 	if cli.DPoP {
-		signer := clitoken.BestSigner()
+		var dpopSigner *dpop.Signer
 
-		dpopSigner, err := dpop.NewSigner(signer)
-		if err != nil {
-			return nil, nil, fmt.Errorf("creating dpop encoder: %w", err)
+		if cli.DPoPCTKLabel != "" {
+			identity, err := keychain.GetIdentity(keychain.IdentityQuery{
+				Label: cli.DPoPCTKLabel,
+				Type:  keychain.IdentityQueryTypeCTK,
+			})
+			if err != nil {
+				return nil, nil, fmt.Errorf("getting identity with label %q: %w", cli.DPoPCTKLabel, err)
+			}
+			signer, err := identity.Signer()
+			if err != nil {
+				return nil, nil, fmt.Errorf("getting signer: %w", err)
+			}
+			chain, err := identity.CertificateChain(nil)
+			if err != nil {
+				return nil, nil, fmt.Errorf("getting certificate chain: %w", err)
+			}
+			dpopSigner, err = dpop.NewSignerWithCertificateChain(signer, chain)
+			if err != nil {
+				return nil, nil, fmt.Errorf("creating dpop signer: %w", err)
+			}
+		} else {
+			dpopSigner, err = dpop.NewSigner(clitoken.BestSigner())
+			if err != nil {
+				return nil, nil, fmt.Errorf("creating dpop signer: %w", err)
+			}
 		}
 
 		dpopTransport := &dpop.Transport{

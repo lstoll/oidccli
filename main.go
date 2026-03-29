@@ -24,6 +24,7 @@ type CLI struct {
 	Scopes         string `help:"Comma separated list of extra scopes to request"`
 	RegisterClient bool   `help:"Perform dynamic client registration and use the returned client ID/secret"`
 	DPoP           bool   `name:"dpop" env:"OIDCCLI_DPOP" help:"Use DPoP to sign HTTP requests"`
+	DPoPCTKLabel   string `name:"dpop-ctk-label" env:"OIDCCLI_DPOP_CTK_LABEL" help:"Label for the CTK key to use for DPoP. If not set, a default key will be generated."`
 
 	// Subcommands
 	Raw        RawCmd        `cmd:"" help:"Output a raw JWT for this client"`
