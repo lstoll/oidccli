@@ -30,19 +30,20 @@ func (i *InfoCmd) Run(ctx context.Context, prov *provider.Provider, ts oauth2.To
 	fmt.Printf("Refresh Token: %s\n", tok.RefreshToken)
 	idt, ok := oidc.GetIDToken(tok)
 	if ok {
-		validator := claims.NewIDTokenValidator(&claims.IDTokenValidatorOpts{
+		verifier, err := claims.NewIDTokenVerifier(prov, claims.IDTokenVerifierOpts{
 			IgnoreClientID: true,
 		})
-		verifier, err := claims.NewVerifier[*claims.VerifiedID](prov)
 		if err != nil {
 			return fmt.Errorf("creating id token validator: %w", err)
 		}
-		claims, err := verifier.VerifyAndDecodeToken(ctx, *tok, validator)
+		verifiedClaims, err := verifier.VerifyTokenResponse(ctx, tok, claims.IDTokenValidationInput{
+			IgnoreNonce: true,
+		})
 		if err != nil {
 			return fmt.Errorf("ID token verification: %w", err)
 		}
 
-		clJSON, err := claims.JSONPayload()
+		clJSON, err := verifiedClaims.Payload()
 		if err != nil {
 			return fmt.Errorf("getting id token json payload: %w", err)
 		}
@@ -57,7 +58,7 @@ func (i *InfoCmd) Run(ctx context.Context, prov *provider.Provider, ts oauth2.To
 			return fmt.Errorf("marshalling id token claims: %w", err)
 		}
 
-		exp, err := claims.ExpiresAt()
+		exp, err := verifiedClaims.ExpiresAt()
 		if err != nil {
 			return fmt.Errorf("getting id token expires at: %w", err)
 		}

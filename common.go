@@ -12,6 +12,7 @@ import (
 	"lds.li/keychain"
 	"lds.li/oauth2ext/clitoken"
 	"lds.li/oauth2ext/dpop"
+	"lds.li/oauth2ext/jwt"
 	"lds.li/oauth2ext/oidc"
 	"lds.li/oauth2ext/oidcclientreg"
 	"lds.li/oauth2ext/provider"
@@ -169,7 +170,11 @@ func registerClient(ctx context.Context, provider *provider.Provider) (string, s
 		GrantTypes:      []string{"authorization_code"},
 	}
 
-	if slices.Contains(provider.IDTokenSigningAlgValuesSupported(), "ES256") {
+	signingAlgorithms, err := provider.IDTokenSigningAlgorithms(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("getting supported ID token signing algorithms: %w", err)
+	}
+	if slices.Contains(signingAlgorithms, jwt.ES256) {
 		request.IDTokenSignedResponseAlg = "ES256"
 	}
 

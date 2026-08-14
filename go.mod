@@ -1,6 +1,8 @@
 module lds.li/oidccli
 
-go 1.26
+go 1.27
+
+toolchain go1.27rc3
 
 require (
 	github.com/alecthomas/kong v1.14.0
@@ -8,9 +10,10 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.13
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.10
 	golang.org/x/oauth2 v0.36.0
-	lds.li/oauth2ext v0.3.2-0.20260329144501-8965c505f1e0
-	lds.li/oauth2ext/keychainsecrets v0.0.0-20260329144501-8965c505f1e0
-	lds.li/oauth2ext/tpmsecrets v0.0.0-20260329144501-8965c505f1e0
+	lds.li/keychain v0.1.1-0.20260329144008-928e30adc410
+	lds.li/oauth2ext v0.3.2-0.20260815192241-46bedb0ccff0
+	lds.li/oauth2ext/keychainsecrets v0.0.0-20260814202642-24b6ccf0229b
+	lds.li/oauth2ext/tpmsecrets v0.0.0-20260814202642-24b6ccf0229b
 )
 
 require (
@@ -26,11 +29,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.18 // indirect
 	github.com/aws/smithy-go v1.24.2 // indirect
 	github.com/ebitengine/purego v0.10.0 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/go-tpm v0.9.8 // indirect
-	github.com/tink-crypto/tink-go/v2 v2.6.0 // indirect
-	golang.org/x/crypto v0.49.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
-	lds.li/keychain v0.1.1-0.20260329144008-928e30adc410 // indirect
 )
