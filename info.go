@@ -24,9 +24,6 @@ func (i *InfoCmd) Run(ctx context.Context, prov *provider.Provider, ts oauth2.To
 
 	fmt.Printf("Access Token: %s\n", tok.AccessToken)
 	fmt.Printf("Access Token expires: %s\n", tok.Expiry.String())
-	if isJWT(tok.AccessToken) {
-		// TODO - add access token verification
-	}
 	fmt.Printf("Refresh Token: %s\n", tok.RefreshToken)
 	idt, ok := oidc.GetIDToken(tok)
 	if ok {

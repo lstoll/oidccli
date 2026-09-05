@@ -1,0 +1,113 @@
+# Snapshots (prereleases) on default-branch pushes; full releases on v* tags.
+# Repo Actions secret: TAP_GITHUB_TOKEN (fine-grained PAT, contents:write on lstoll/homebrew-tap).
+name: release
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ci:
+    name: CI
+    uses: lstoll/actions-workflows/.github/workflows/go.yaml@main
+    permissions:
+      contents: read
+
+  dist:
+    name: Build and release
+    needs: ci
+    if: ${{ github.repository == 'lstoll/oidccli' && !github.event.repository.fork }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # gh release create + upload archives
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - id: version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            v="${GITHUB_REF_NAME#v}"
+            echo "version=$v" >> "$GITHUB_OUTPUT"
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          else
+            v="$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}"
+            echo "version=$v" >> "$GITHUB_OUTPUT"
+            echo "tag=snapshot-$v" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Dist
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: ./scripts/dist.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: oidccli
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+      - name: GitHub Release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          if [ "$PRERELEASE" = true ]; then
+            gh release create "$TAG" dist/oidccli-*.tar.gz dist/SHA256SUMS \
+              --title "snapshot ${VERSION}" \
+              --prerelease \
+              --latest=false
+          else
+            gh release create "$TAG" dist/oidccli-*.tar.gz dist/SHA256SUMS \
+              --title "$TAG" \
+              --generate-notes \
+              --latest
+          fi
+      # GITHUB_TOKEN cannot trigger on: release workflows, so bump here.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: github.event_name != 'pull_request' && steps.version.outputs.prerelease != 'true'
+        with:
+          repository: lstoll/homebrew-tap
+          path: homebrew-tap
+          persist-credentials: false
+      - name: Bump tap
+        if: github.event_name != 'pull_request' && steps.version.outputs.prerelease != 'true'
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAP_GITHUB_TOKEN:-}" ]; then
+            echo "TAP_GITHUB_TOKEN is required to push lstoll/homebrew-tap" >&2
+            exit 1
+          fi
+          python3 ./scripts/bump-tap.py "$VERSION"
+          git -C homebrew-tap config user.name "github-actions[bot]"
+          git -C homebrew-tap config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C homebrew-tap add Formula/oidccli.rb
+          if git -C homebrew-tap diff --cached --quiet; then
+            echo "formula already at ${VERSION}"
+            exit 0
+          fi
+          git -C homebrew-tap commit -m "oidccli ${VERSION}"
+          git -C homebrew-tap push "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/lstoll/homebrew-tap.git" HEAD:main

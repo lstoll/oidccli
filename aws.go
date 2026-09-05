@@ -79,13 +79,18 @@ func (a *AwsExecCmd) Run(ctx context.Context, ts oauth2.TokenSource, awsCmd *Aws
 		return fmt.Errorf("finding executable %s: %w", a.Command[0], err)
 	}
 
-	// Set environment variables
-	os.Setenv("AWS_ACCESS_KEY_ID", *creds.AccessKeyId)
-	os.Setenv("AWS_SECRET_ACCESS_KEY", *creds.SecretAccessKey)
-	os.Setenv("AWS_SESSION_TOKEN", *creds.SessionToken)
-	os.Setenv("AWS_SECURITY_TOKEN", *creds.SessionToken) // Some tools use this instead
-	os.Setenv("AWS_REGION", awsCmd.Region)
-	os.Setenv("AWS_DEFAULT_REGION", awsCmd.Region) // Some tools use this instead
+	for key, val := range map[string]string{
+		"AWS_ACCESS_KEY_ID":     *creds.AccessKeyId,
+		"AWS_SECRET_ACCESS_KEY": *creds.SecretAccessKey,
+		"AWS_SESSION_TOKEN":     *creds.SessionToken,
+		"AWS_SECURITY_TOKEN":    *creds.SessionToken, // Some tools use this instead
+		"AWS_REGION":            awsCmd.Region,
+		"AWS_DEFAULT_REGION":    awsCmd.Region, // Some tools use this instead
+	} {
+		if err := os.Setenv(key, val); err != nil {
+			return fmt.Errorf("setting %s: %w", key, err)
+		}
+	}
 
 	if err := syscall.Exec(execPath, a.Command, os.Environ()); err != nil {
 		return fmt.Errorf("executing command: %w", err)
@@ -184,7 +189,7 @@ func generateConsoleSignInURL(creds *types.Credentials, partition string) (strin
 	if err != nil {
 		return "", fmt.Errorf("getting sign-in token: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
