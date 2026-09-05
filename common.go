@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"golang.org/x/oauth2"
-	"lds.li/keychain"
 	"lds.li/oauth2ext/clitoken"
 	"lds.li/oauth2ext/dpop"
 	"lds.li/oauth2ext/jwt"
@@ -85,24 +84,9 @@ func setupProviderAndTokenSource(ctx context.Context, cli *CLI) (*provider.Provi
 		var dpopSigner *dpop.Signer
 
 		if cli.DPoPCTKLabel != "" {
-			identity, err := keychain.GetIdentity(keychain.IdentityQuery{
-				Label: cli.DPoPCTKLabel,
-				Type:  keychain.IdentityQueryTypeCTK,
-			})
+			dpopSigner, err = dpopSignerFromCTK(cli.DPoPCTKLabel)
 			if err != nil {
-				return nil, nil, fmt.Errorf("getting identity with label %q: %w", cli.DPoPCTKLabel, err)
-			}
-			signer, err := identity.Signer()
-			if err != nil {
-				return nil, nil, fmt.Errorf("getting signer: %w", err)
-			}
-			chain, err := identity.CertificateChain(nil)
-			if err != nil {
-				return nil, nil, fmt.Errorf("getting certificate chain: %w", err)
-			}
-			dpopSigner, err = dpop.NewSignerWithCertificateChain(signer, chain)
-			if err != nil {
-				return nil, nil, fmt.Errorf("creating dpop signer: %w", err)
+				return nil, nil, err
 			}
 		} else {
 			dpopSigner, err = dpop.NewSigner(clitoken.BestSigner())
@@ -153,11 +137,6 @@ func setupProviderAndTokenSource(ctx context.Context, cli *CLI) (*provider.Provi
 type kubeToken struct {
 	Token               string     `json:"token,omitempty"`
 	ExpirationTimestamp *time.Time `json:"expirationTimestamp,omitempty"`
-}
-
-// isJWT guesses if something is a JWT
-func isJWT(s string) bool {
-	return strings.Count(s, ".") == 2
 }
 
 // registerClient performs dynamic client registration with the OIDC provider

@@ -1,2 +1,4 @@
 /go.work*
 /oidccli
+/dist
+/homebrew-tap
