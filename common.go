@@ -3,15 +3,16 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/http"
+	"log/slog"
+	"os"
 	"slices"
 	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
 	"lds.li/oauth2ext/clitoken"
-	"lds.li/oauth2ext/dpop"
 	"lds.li/oauth2ext/jwt"
+	"lds.li/oauth2ext/oauth2client"
 	"lds.li/oauth2ext/oidc"
 	"lds.li/oauth2ext/oidcclientreg"
 	"lds.li/oauth2ext/provider"
@@ -68,57 +69,72 @@ func setupProviderAndTokenSource(ctx context.Context, cli *CLI) (*provider.Provi
 		scopes = append(scopes, strings.Split(cli.Scopes, ",")...)
 	}
 
-	oa2Cfg := oauth2.Config{
+	oa2Cfg := &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		Endpoint:     prov.Endpoint(),
 		Scopes:       scopes,
 	}
+	clientType := oauth2client.PublicClient
+	if clientSecret != "" {
+		clientType = oauth2client.ConfidentialClient
+	}
 	clitokCfg := clitoken.Config{
-		OAuth2Config: oa2Cfg,
+		OAuth2Client: oa2Cfg,
+		ClientType:   clientType,
 		PortLow:      uint16(cli.PortLow),
 		PortHigh:     uint16(cli.PortHigh),
 	}
 
-	if cli.DPoP {
-		dpopSigner, err := newDPoPSigner(cli.DPoPCTKLabel)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		dpopTransport := &dpop.Transport{
-			Base:   http.DefaultTransport,
-			Signer: dpopSigner,
-		}
-
-		ctx = context.WithValue(ctx, oauth2.HTTPClient, &http.Client{
-			Transport: dpopTransport,
-		})
-	}
-
-	ts, err := clitokCfg.TokenSource(ctx)
+	cliTS, err := clitokCfg.TokenSource(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("getting cli token source: %w", err)
 	}
 
-	if !skipCache {
-		ccfg := tokencache.Config{
-			Issuer: cli.Issuer,
-			CacheKey: (tokencache.IDTokenCacheKey{
-				ClientID: clientID,
-				Scopes:   scopes,
-			}).Key(),
-			WrappedSource: ts,
-			Cache:         clitoken.BestCredentialCache(),
-		}
-		if cli.Offline {
-			ccfg.OAuth2Config = &oa2Cfg
-		}
+	// The token cache is always used, as it manages the DPoP key for each
+	// login. When caching is disabled it is only held in memory, but DPoP keys
+	// still come from the platform store.
+	log := slog.New(slog.DiscardHandler)
+	if cli.Debug {
+		log = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	}
 
-		ts, err = ccfg.TokenSource(ctx)
-		if err != nil {
-			return nil, nil, fmt.Errorf("error creating token cache: %w", err)
+	var store tokencache.Store
+	if ps := clitoken.PlatformStore(); ps != nil {
+		store = ps
+		log.Debug("using platform credential store", "type", fmt.Sprintf("%T", ps))
+	} else {
+		store = &clitoken.MemCredentialCache{}
+		if cli.DPoP {
+			fmt.Fprintln(os.Stderr, "warning: no hardware-backed credential store available, DPoP keys will be software keys held in memory")
 		}
+		log.Debug("no platform credential store available, using memory")
+	}
+	var cache tokencache.CredentialCache = store
+	if skipCache {
+		cache = &clitoken.MemCredentialCache{}
+	}
+
+	ccfg := tokencache.Config{
+		Issuer: cli.Issuer,
+		CacheKey: (tokencache.IDTokenCacheKey{
+			ClientID: clientID,
+			Scopes:   scopes,
+		}).Key(),
+		WrappedSource: cliTS,
+		Cache:         cache,
+		Logger:        log,
+	}
+	if cli.Offline {
+		ccfg.TokenSourceProvider = oa2Cfg
+	}
+	if cli.DPoP {
+		ccfg.DPoPKeys = store
+	}
+
+	ts, err := ccfg.TokenSource(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error creating token cache: %w", err)
 	}
 
 	return prov, ts, nil

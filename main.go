@@ -23,8 +23,8 @@ type CLI struct {
 	SkipCache      bool   `help:"Do not perform any local caching on token"`
 	Scopes         string `help:"Comma separated list of extra scopes to request"`
 	RegisterClient bool   `help:"Perform dynamic client registration and use the returned client ID/secret"`
+	Debug          bool   `name:"debug" env:"OIDCCLI_DEBUG" help:"Log debug information, such as token cache and refresh behaviour, to stderr"`
 	DPoP           bool   `name:"dpop" env:"OIDCCLI_DPOP" help:"Use DPoP to sign HTTP requests"`
-	DPoPCTKLabel   string `name:"dpop-ctk-label" env:"OIDCCLI_DPOP_CTK_LABEL" help:"Label for the CTK key to use for DPoP. If not set, a default key will be generated."`
 
 	// Subcommands
 	Raw        RawCmd        `cmd:"" help:"Output a raw JWT for this client"`
