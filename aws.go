@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/arn"
@@ -22,12 +23,13 @@ import (
 
 // AwsCmd is the root AWS command
 type AwsCmd struct {
-	RoleARN         string      `env:"OIDCCLI_AWS_ROLE_ARN" required:"" help:"AWS IAM Role ARN to assume"`
-	Region          string      `env:"AWS_REGION" required:"" help:"AWS region"`
-	SessionName     string      `help:"Session name for the assumed role (defaults to oidccli)"`
-	DurationSeconds int32       `help:"Duration in seconds for the temporary credentials (default: 3600)"`
-	Login           AwsLoginCmd `cmd:"" help:"Generate a temporary AWS console login URL and open it"`
-	Exec            AwsExecCmd  `cmd:"" help:"Set AWS credentials as environment variables and execute a command"`
+	RoleARN           string                  `env:"OIDCCLI_AWS_ROLE_ARN" required:"" help:"AWS IAM Role ARN to assume"`
+	Region            string                  `env:"AWS_REGION" required:"" help:"AWS region"`
+	SessionName       string                  `help:"Session name for the assumed role (defaults to oidccli)"`
+	DurationSeconds   int32                   `help:"Duration in seconds for the temporary credentials (default: 3600)"`
+	Login             AwsLoginCmd             `cmd:"" help:"Generate a temporary AWS console login URL and open it"`
+	Exec              AwsExecCmd              `cmd:"" help:"Set AWS credentials as environment variables and execute a command"`
+	CredentialProcess AwsCredentialProcessCmd `cmd:"" name:"credential-process" help:"Output credentials as JSON for the AWS CLI/SDK credential_process setting"`
 }
 
 // AwsLoginCmd generates a temporary AWS console login URL
@@ -36,6 +38,42 @@ type AwsLoginCmd struct{}
 // AwsExecCmd sets AWS credentials and executes a command
 type AwsExecCmd struct {
 	Command []string `arg:"" help:"Command to execute"`
+}
+
+// AwsCredentialProcessCmd prints credentials in the credential_process format
+type AwsCredentialProcessCmd struct{}
+
+// credentialProcessOutput is the JSON the AWS SDKs read from a credential_process
+// command. See
+// https://docs.aws.amazon.com/sdkref/latest/guide/feature-process-credentials.html
+type credentialProcessOutput struct {
+	Version         int    `json:"Version"`
+	AccessKeyID     string `json:"AccessKeyId"`
+	SecretAccessKey string `json:"SecretAccessKey"`
+	SessionToken    string `json:"SessionToken"`
+	Expiration      string `json:"Expiration,omitempty"`
+}
+
+// Run executes the AWS credential-process command
+func (a *AwsCredentialProcessCmd) Run(ctx context.Context, ts oauth2.TokenSource, awsCmd *AwsCmd) error {
+	creds, err := assumeRoleWithWebIdentity(ctx, ts, awsCmd.RoleARN, awsCmd.getSessionName(), awsCmd.DurationSeconds, awsCmd.Region)
+	if err != nil {
+		return fmt.Errorf("assuming role: %w", err)
+	}
+	return json.NewEncoder(os.Stdout).Encode(credentialProcessFromCreds(creds))
+}
+
+func credentialProcessFromCreds(creds *types.Credentials) credentialProcessOutput {
+	out := credentialProcessOutput{
+		Version:         1,
+		AccessKeyID:     aws.ToString(creds.AccessKeyId),
+		SecretAccessKey: aws.ToString(creds.SecretAccessKey),
+		SessionToken:    aws.ToString(creds.SessionToken),
+	}
+	if creds.Expiration != nil {
+		out.Expiration = creds.Expiration.UTC().Format(time.RFC3339)
+	}
+	return out
 }
 
 // Run executes the AWS login command
